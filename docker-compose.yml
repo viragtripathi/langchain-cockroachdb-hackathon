@@ -1,0 +1,18 @@
+# One CockroachDB node for the hackathon: docker compose up -d --wait
+# If port 26257 is taken (for example by the chaos demo), pick another:
+#   CRDB_PORT=26258 docker compose up -d --wait
+# and change the port in COCKROACHDB_URL in .env to match.
+services:
+  cockroachdb:
+    image: cockroachdb/cockroach:v26.3.2
+    container_name: hackathon-cockroachdb
+    command: start-single-node --insecure --cache=256MiB --max-sql-memory=384MiB
+    ports:
+      - "${CRDB_PORT:-26257}:26257"
+      - "${CRDB_UI_PORT:-8080}:8080"
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "/cockroach/cockroach", "sql", "--insecure", "--execute=SELECT 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 40

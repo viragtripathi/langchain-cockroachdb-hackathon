@@ -1,0 +1,13 @@
+langchain-cockroachdb>=0.5.0
+langchain>=1.0
+python-dotenv>=1.0
+
+# The model provider. OpenAI is the default in .env.example. Swap or add one:
+langchain-openai>=1.0
+# langchain-google-genai     # MODEL=google_genai:...  EMBEDDINGS=google_genai:...
+# langchain-anthropic        # MODEL=anthropic:...  (pair with another provider's embeddings)
+# langchain-aws              # MODEL=bedrock_converse:...  EMBEDDINGS=bedrock:...
+# langchain-ollama           # MODEL=ollama:...  EMBEDDINGS=ollama:...  (local and free)
+
+# For running the kit's own tests
+pytest>=8
