@@ -33,8 +33,32 @@ def run(*args: str) -> str:
 
 def test_check_setup_passes() -> None:
     out = run("check_setup.py")
+    assert "langchain-cockroachdb: OK" in out
     assert "Database: OK" in out
     assert "offline mode" in out
+
+
+def test_check_setup_flags_an_old_langchain_cockroachdb() -> None:
+    # Someone who installed the kit while it still asked for 0.5.0
+    fake_old_version = (
+        "import importlib.metadata as metadata, runpy\n"
+        "real = metadata.version\n"
+        "metadata.version = lambda name: (\n"
+        "    '0.5.0' if name == 'langchain-cockroachdb' else real(name))\n"
+        "runpy.run_path('check_setup.py', run_name='__main__')\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", fake_old_version],
+        cwd=ROOT,
+        env=dict(os.environ, OFFLINE="1"),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "langchain-cockroachdb: 0.5.0 is older than 0.5.1" in done.stdout
+    assert "pip install -r requirements.txt" in done.stdout
 
 
 def test_rag_chatbot_finds_the_return_policy() -> None:

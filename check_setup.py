@@ -1,13 +1,18 @@
 """Check that everything is ready: python check_setup.py
 
-It checks your Python version, the database connection, and the chat and
-embedding models in .env (or offline mode), and tells you what to fix.
+It checks your Python version, the langchain-cockroachdb version, the database
+connection, and the chat and embedding models in .env (or offline mode), and
+tells you what to fix.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from importlib import metadata
+
+# Oldest langchain-cockroachdb the kit supports; keep in step with requirements.txt
+MINIMUM_LIBRARY = "0.5.1"
 
 
 def main() -> int:
@@ -20,6 +25,7 @@ def main() -> int:
 
     try:
         from langchain_cockroachdb import CockroachDBSaver
+        from packaging.version import Version
 
         from kit.common import (
             DEFAULT_EMBEDDINGS,
@@ -33,6 +39,15 @@ def main() -> int:
     except ImportError as error:
         print(f"Packages: missing ({error}). Run: pip install -r requirements.txt")
         return 1
+
+    library = metadata.version("langchain-cockroachdb")
+    if Version(library) < Version(MINIMUM_LIBRARY):
+        print(
+            f"langchain-cockroachdb: {library} is older than {MINIMUM_LIBRARY}. "
+            "Run: pip install -r requirements.txt"
+        )
+        return 1
+    print(f"langchain-cockroachdb: OK ({library})")
 
     try:
         with CockroachDBSaver.from_conn_string(db_url()) as saver:
