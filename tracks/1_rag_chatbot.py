@@ -5,6 +5,10 @@ meaning and by keywords at the same time, so exact product codes such as
 "TX-200" match too. The agent searches the docs with a tool and answers from
 what it finds.
 
+The table has a C-SPANN vector index. From langchain-cockroachdb 0.6.0, a
+search with a category filter takes its nearest rows from that index first,
+the same path it takes on a table with millions of docs.
+
     python tracks/1_rag_chatbot.py                         # chat in the terminal
     python tracks/1_rag_chatbot.py "Can I return my boots?"  # ask one question
 
@@ -29,6 +33,7 @@ from langchain.tools import tool
 from langchain_cockroachdb import (
     CockroachDBEngine,
     CockroachDBVectorStore,
+    CSPANNIndex,
     HybridSearchConfig,
 )
 
@@ -60,6 +65,7 @@ def build_vector_store(engine: CockroachDBEngine) -> CockroachDBVectorStore:
         collection_name=TABLE,
         hybrid_search_config=HybridSearchConfig(),
     )
+    store.apply_vector_index(CSPANNIndex())  # build it while the table is empty
     docs = load_docs("acme")
     store.add_documents(docs)
     print(f"Loaded {len(docs)} docs into the {TABLE} table.")

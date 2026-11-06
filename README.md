@@ -48,6 +48,9 @@ docs in `data/acme/`. The docs go into a CockroachDB vector store with hybrid
 search, which ranks by meaning and by keywords at once, so product codes such
 as "TX-200" match exactly.
 
+The table now has a C-SPANN vector index. New in 0.6.0: a search with a
+category filter uses it too.
+
 ```bash
 python tracks/1_rag_chatbot.py "Can I return my boots?"
 python tracks/1_rag_chatbot.py "How much does the TX-200 weigh?"
@@ -62,25 +65,45 @@ An assistant that remembers. `CockroachDBSaver` keeps each conversation (a
 thread), and `CockroachDBStore` keeps facts about each user across all of their
 threads, with semantic search.
 
+New in 0.6.0: memories stay true. The agent saves each fact under a topic,
+such as `diet`. A newer fact in the same topic supersedes the old one, and a
+fact the user repeats confirms the one already saved. So recall finds only
+current facts, and history keeps the old ones with the thread each came from.
+
 ```bash
 python tracks/2_agent_memory.py --user alice --thread trip-1 "Remember that I am vegetarian."
-python tracks/2_agent_memory.py --user alice --thread trip-2 "What should I eat tonight?"
-python tracks/2_agent_memory.py --user bob --thread trip-3 "What should I eat tonight?"
+python tracks/2_agent_memory.py --user alice --thread trip-2 "Remember that I eat fish now."
+python tracks/2_agent_memory.py --user alice --thread trip-3 "What should I eat tonight?"
+python tracks/2_agent_memory.py --user alice --thread trip-3 "How has my diet changed?"
+python tracks/2_agent_memory.py --user alice --history
+python tracks/2_agent_memory.py --user bob --thread trip-4 "What should I eat tonight?"
 ```
 
-Make it yours: give memories an expiry, add a "forget me" tool, or merge it
-with track 1 so the support bot remembers each customer.
+`--history` prints a user's memories and what they replaced, without asking
+the agent.
+
+Make it yours: let memories expire unless the user confirms them, let two
+agents update one memory safely with `put_if`, add a "forget me" tool with
+`delete_namespace`, or merge it with track 1 so the support bot remembers each
+customer.
 
 ### Track 3: Multi-tenant RAG
 
 Two companies, Acme Outfitters and Globex Coffee Roasters, share one vector
 table. Each company's docs live in their own namespace, so a search never
-crosses tenants. Ask both the same question:
+crosses tenants, and the agent can also filter by category. Ask both the same
+question:
 
 ```bash
 python tracks/3_multi_tenant_rag.py --tenant acme "What is your return policy?"
 python tracks/3_multi_tenant_rag.py --tenant globex "What is your return policy?"
 ```
+
+The vector index has the namespace as its prefix column. New in 0.6.0: a
+tenant's search with a category filter takes its nearest rows from that
+tenant's part of the index first, and scans only when too few of them pass.
+Before, the filter always made the search scan the table, which gets slower as
+tenants and docs pile up.
 
 Make it yours: add a third company, pick the tenant from a login, or give each
 tenant its own tone of voice.
@@ -122,11 +145,14 @@ For track 2, use a hosted model or a larger local one.
 
 ## Offline mode
 
-With `OFFLINE=1`, a scripted model stands in for the LLM: it calls one of the
-agent's tools with your message and answers with what the tool returned. A
-keyword-based embedding stands in for a real one, so texts that share words
-come out as similar. It shows that the database, the tools and the agent are
-wired up. It does not give smart answers, so switch to a real model to build.
+With `OFFLINE=1`, a scripted model stands in for the LLM: it picks one of the
+agent's tools by the words in your message, calls it, and answers with what
+the tool returned. In track 2, a message that starts with "remember" saves a
+memory, under a topic from a short word list in `kit/common.py`, and a message
+that asks what changed shows the history. A keyword-based embedding stands in
+for a real one, so texts that share words come out as similar. It shows that
+the database, the tools and the agent are wired up. It does not give smart
+answers, so switch to a real model to build.
 
 ## Troubleshooting
 
@@ -146,13 +172,14 @@ wired up. It does not give smart answers, so switch to a real model to build.
   [long-term memory](https://docs.langchain.com/oss/python/langchain/long-term-memory),
   [build a SQL agent](https://docs.langchain.com/oss/python/langchain/sql-agent)
 - langchain-cockroachdb: [docs](https://cockroachdb.github.io/langchain-cockroachdb/),
+  [keeping memories true](https://cockroachdb.github.io/langchain-cockroachdb/guides/long-term-memory/#keeping-memories-true),
   [examples](https://cockroachdb.github.io/langchain-cockroachdb/examples/),
   [source](https://github.com/cockroachdb/langchain-cockroachdb)
 
 ## Testing the kit
 
-Tested on Python 3.11, 3.13 and 3.15 with CockroachDB v26.3.2, in offline mode,
-with OpenAI's default models, and with local Ollama models.
+Tested on Python 3.11 and 3.13 with CockroachDB v26.3.4 in offline mode, and
+tracks 2 and 3 with OpenAI's default models.
 
 The tests run every track the way a participant would, in offline mode,
 against the database in `COCKROACHDB_URL`:

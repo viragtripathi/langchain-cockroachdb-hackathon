@@ -2,9 +2,9 @@
 
 MODEL and EMBEDDINGS in .env pick any LangChain provider, written as
 "provider:model". With OFFLINE=1 the tracks run without API keys: a scripted
-model calls the agent's tools, and a keyword-based embedding stands in for a
-real one. Offline mode shows that everything is wired up. It does not give
-smart answers.
+model picks the agent's tools by the words in your message, and a
+keyword-based embedding stands in for a real one. Offline mode shows that
+everything is wired up. It does not give smart answers.
 """
 
 from __future__ import annotations
@@ -179,15 +179,36 @@ class KeywordEmbeddings(Embeddings):
         return self._embed(text)
 
 
+# The topics the offline model saves facts under, picked by the words a fact
+# uses. A fact with none of these words goes under its first word instead.
+OFFLINE_TOPICS = {
+    "diet": {"diet", "vegetarian", "vegan", "eat", "eats", "fish", "meat"},
+    "home_city": {"city", "live", "lives", "moved"},
+}
+# Words that ask how a memory changed. The offline model calls memory_history for them
+HISTORY_WORDS = ("changed", "history", "before", "used to")
+
+
+def _topic(text: str) -> str | None:
+    """The topic in OFFLINE_TOPICS whose words the text uses, if any."""
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    return next((topic for topic, keys in OFFLINE_TOPICS.items() if words & keys), None)
+
+
 class OfflineChatModel(BaseChatModel):
     """Offline stand-in for an LLM.
 
-    It calls one of the agent's tools with the user's message: save_memory when
-    the message starts with "remember", otherwise the first other tool, with
-    the message as its query. Then it answers with what the tool returned.
+    It calls one of the agent's tools with the user's message, then answers
+    with what the tool returned. A message that starts with "remember" goes to
+    save_memory, with a topic from OFFLINE_TOPICS. A message that asks how
+    something changed goes to memory_history. Any other message goes to the
+    first other tool, as its query. If that tool takes a category and the
+    message names one of the categories it allows, the category goes along too.
     """
 
     tool_names: list[str] = Field(default_factory=list)
+    # For each tool that takes a category, the categories it allows
+    categories: dict[str, list[str]] = Field(default_factory=dict)
 
     @property
     def _llm_type(self) -> str:
@@ -197,7 +218,47 @@ class OfflineChatModel(BaseChatModel):
         names = [
             getattr(t, "name", None) or getattr(t, "__name__", str(t)) for t in tools
         ]
-        return self.model_copy(update={"tool_names": names})
+        categories = {}
+        for name, t in zip(names, tools, strict=True):
+            schema = (getattr(t, "args", None) or {}).get("category")
+            if schema is not None:
+                # A Literal lists its values in the schema. Otherwise take the
+                # values in quotes in the description, as track 1 writes them
+                options = [schema, *schema.get("anyOf", [])]
+                allowed = [value for o in options for value in o.get("enum", [])]
+                categories[name] = allowed or re.findall(
+                    r'"([a-z_]+)"', getattr(t, "description", "")
+                )
+        return self.model_copy(update={"tool_names": names, "categories": categories})
+
+    def _tool_call(self, text: str) -> tuple[str, dict[str, Any]]:
+        """The tool to call for a message, and its arguments."""
+        lowered = text.lower()
+        if lowered.startswith("remember") and "save_memory" in self.tool_names:
+            fact = re.sub(r"^remember(\s+that)?\W*", "", text, flags=re.IGNORECASE)
+            fact = (fact[:1].upper() + fact[1:]) or text
+            words = [
+                word
+                for word in re.findall(r"[a-z]+", fact.lower())
+                if len(word) >= 3 and word not in _STOPWORDS
+            ]
+            topic = _topic(fact) or (words[0] if words else "notes")
+            return "save_memory", {"text": fact, "topic": topic}
+        if "memory_history" in self.tool_names and any(
+            word in lowered for word in HISTORY_WORDS
+        ):
+            topic = _topic(text)
+            return "memory_history", {"topic": topic} if topic else {}
+        others = [
+            n for n in self.tool_names if n not in ("save_memory", "memory_history")
+        ]
+        name = (others or self.tool_names)[0]
+        args: dict[str, Any] = {"query": text}
+        stems = {_stem(word) for word in re.findall(r"[a-z0-9]+", lowered)}
+        named = [c for c in self.categories.get(name, []) if _stem(c) in stems]
+        if named:
+            args["category"] = named[0]
+        return name, args
 
     def _generate(
         self,
@@ -208,12 +269,7 @@ class OfflineChatModel(BaseChatModel):
     ) -> ChatResult:
         last = messages[-1]
         if isinstance(last, HumanMessage) and self.tool_names:
-            text = str(last.content)
-            if text.lower().startswith("remember") and "save_memory" in self.tool_names:
-                name, args = "save_memory", {"text": text}
-            else:
-                others = [n for n in self.tool_names if n != "save_memory"]
-                name, args = (others or self.tool_names)[0], {"query": text}
+            name, args = self._tool_call(str(last.content))
             call = {"name": name, "args": args, "id": f"call_{uuid.uuid4().hex[:8]}"}
             message = AIMessage(content="", tool_calls=[call])
         elif isinstance(last, ToolMessage):

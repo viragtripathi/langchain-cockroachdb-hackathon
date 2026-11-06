@@ -4,7 +4,7 @@
 # and change the port in COCKROACHDB_URL in .env to match.
 services:
   cockroachdb:
-    image: cockroachdb/cockroach:v26.3.2
+    image: cockroachdb/cockroach:v26.3.4
     container_name: hackathon-cockroachdb
     command: start-single-node --insecure --cache=256MiB --max-sql-memory=384MiB
     ports:

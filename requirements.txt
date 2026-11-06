@@ -1,4 +1,4 @@
-langchain-cockroachdb>=0.5.1
+langchain-cockroachdb>=0.6.0
 langchain>=1.0
 python-dotenv>=1.0
 

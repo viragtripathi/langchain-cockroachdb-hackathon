@@ -12,7 +12,7 @@ import sys
 from importlib import metadata
 
 # Oldest langchain-cockroachdb the kit supports; keep in step with requirements.txt
-MINIMUM_LIBRARY = "0.5.1"
+MINIMUM_LIBRARY = "0.6.0"
 
 
 def main() -> int:
